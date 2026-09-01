@@ -82,16 +82,24 @@ def compare(csi_records: list[Record], management_records: list[Record], registe
 
         result.append(ComparisonRow(receipt, status, fields, reasons, source, m, r))
 
-    extra_receipts = (set(mgmt) | set(reg)) - set(csi)
+    # 접수대장은 누적 대장이므로 전체 역방향 비교를 하면 과거 발급분이 수천 건 잡힌다.
+    # 관리프로그램의 현재 발행목록과 CSI 발급일 범위에 해당하는 접수대장 건만 확인 후보로 본다.
+    csi_dates = {x.issue_date for x in csi_records if x.issue_date}
+    extra_receipts = set(mgmt) - set(csi)
+    for receipt, rr in reg.items():
+        if receipt in csi:
+            continue
+        effective_date = rr.revised_issue_date if is_revised(rr.certificate_no) and rr.revised_issue_date else rr.issue_date
+        if effective_date in csi_dates and (rr.certificate_no or effective_date):
+            extra_receipts.add(receipt)
+
     for receipt in sorted(extra_receipts):
         m, r = mgmt.get(receipt), reg.get(receipt)
-        if not ((m and (m.certificate_no or m.issue_date)) or (r and (r.certificate_no or r.issue_date or r.revised_issue_date))):
-            continue
         result.append(ComparisonRow(
             receipt_no=receipt,
             status="확인 필요",
             error_fields=["CSI에 없는 발급정보"],
-            reasons=["이번 CSI 발급대장에는 없지만 관리프로그램 또는 접수대장에 발급정보가 있습니다. 이전 발급분 또는 잘못 입력된 건인지 확인하세요."],
+            reasons=["이번 CSI 발급대장에는 없지만 같은 발급 범위의 관리프로그램 또는 접수대장에 발급정보가 있습니다. 이전 발급분 또는 잘못 입력된 건인지 확인하세요."],
             csi=None,
             management=m,
             register=r,
