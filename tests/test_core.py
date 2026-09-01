@@ -39,7 +39,7 @@ def test_missing_management_certificate_is_error():
     reg = [rec("AC-3", "IS-2026-152070-00", d)]
     row = compare(csi, mgmt, reg)[0]
     assert row.status == "오류"
-    assert "관리 성적서번호 누락" in row.error_fields
+    assert "관리프로그램 성적서번호 누락" in row.error_fields
 
 
 def test_extra_non_csi_issue_is_review_not_error():
