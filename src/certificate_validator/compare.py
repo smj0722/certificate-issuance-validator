@@ -48,13 +48,13 @@ def compare(csi_records: list[Record], management_records: list[Record], registe
 
         if m is not None:
             if not m.certificate_no:
-                errors.append("관리 성적서번호 누락")
+                errors.append("관리프로그램 성적서번호 누락")
                 reasons.append("관리프로그램 성적서번호가 비어 있습니다.")
             elif m.certificate_no != source.certificate_no:
-                errors.append("관리 성적서번호")
+                errors.append("관리프로그램 성적서번호")
                 reasons.append("관리프로그램 성적서번호가 CSI와 다릅니다.")
             if m.issue_date != source.issue_date:
-                errors.append("관리 발급일자")
+                errors.append("관리프로그램 발급일자")
                 reasons.append("관리프로그램 발행일이 CSI와 다릅니다.")
 
         if r is not None:
