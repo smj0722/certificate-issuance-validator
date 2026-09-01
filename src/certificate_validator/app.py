@@ -1,0 +1,356 @@
+from __future__ import annotations
+import sys
+import webbrowser
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu,
+    QMessageBox, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget, QFrame, QAbstractItemView
+)
+
+from . import __version__
+from .compare import compare
+from .exporter import export_results
+from .io_utils import find_register, newest_management_file
+from .parsers import classify_file, parse_csi, parse_management, parse_register
+from .settings import append_history, load_settings, save_settings
+from .updater import check_update
+
+
+class DropZone(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setObjectName("dropZone")
+        layout = QVBoxLayout(self)
+        title = QLabel("CSI 발급대장과 발행리스트를 여기에 드래그")
+        title.setObjectName("dropTitle")
+        title.setAlignment(Qt.AlignCenter)
+        sub = QLabel("두 파일을 한 번에 놓아도 자동으로 구분합니다.")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setObjectName("muted")
+        layout.addStretch(); layout.addWidget(title); layout.addWidget(sub); layout.addStretch()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = [Path(u.toLocalFile()) for u in event.mimeData().urls() if u.isLocalFile()]
+        self.window().accept_files(paths)
+
+
+class CopyTable(QTableWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectItems)
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._menu)
+
+    def _menu(self, pos):
+        if not self.selectedItems():
+            return
+        menu = QMenu(self)
+        act = QAction("복사", self)
+        act.triggered.connect(self.copy_selection)
+        menu.addAction(act)
+        menu.exec(self.viewport().mapToGlobal(pos))
+
+    def keyPressEvent(self, event):
+        if event.matches(event.StandardKey.Copy):
+            self.copy_selection()
+            return
+        super().keyPressEvent(event)
+
+    def copy_selection(self):
+        selected = self.selectedIndexes()
+        if not selected:
+            return
+        rows = sorted(set(i.row() for i in selected))
+        cols = sorted(set(i.column() for i in selected))
+        text_rows = []
+        for r in rows:
+            vals = []
+            for c in cols:
+                item = self.item(r, c)
+                vals.append(item.text() if item else "")
+            text_rows.append("\t".join(vals))
+        QApplication.clipboard().setText("\n".join(text_rows))
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.settings = load_settings()
+        self.csi_path: Path | None = None
+        self.management_path: Path | None = None
+        self.register_path: Path | None = find_register(self.settings["register_root"])
+        self.rows = []
+        self.excluded_general = 0
+        self.setWindowTitle(f"성적서 발급검증 v{__version__}")
+        self.resize(1180, 760)
+        self._build()
+        self._refresh_status()
+
+    def _build(self):
+        root = QWidget()
+        self.setCentralWidget(root)
+        outer = QVBoxLayout(root)
+        outer.setContentsMargins(24, 24, 24, 24)
+        outer.setSpacing(16)
+
+        header = QHBoxLayout()
+        title = QLabel("성적서 발급검증")
+        title.setObjectName("title")
+        header.addWidget(title)
+        header.addStretch()
+        up = QPushButton("업데이트 확인")
+        up.clicked.connect(self.update_check)
+        header.addWidget(up)
+        outer.addLayout(header)
+
+        self.drop = DropZone(self)
+        outer.addWidget(self.drop, 1)
+
+        self.status = QLabel()
+        self.status.setObjectName("statusCard")
+        self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        outer.addWidget(self.status)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+        browse = QPushButton("파일 선택")
+        browse.clicked.connect(self.browse_files)
+        buttons.addWidget(browse)
+        self.start_btn = QPushButton("검사 시작")
+        self.start_btn.setObjectName("primary")
+        self.start_btn.clicked.connect(self.run_check)
+        buttons.addWidget(self.start_btn)
+        outer.addLayout(buttons)
+
+    def accept_files(self, paths: list[Path]):
+        errors = []
+        for p in paths:
+            try:
+                kind = classify_file(p)
+                if kind == "csi":
+                    self.csi_path = p
+                elif kind == "management":
+                    self.management_path = p
+                    self.settings["last_download_dir"] = str(p.parent)
+                elif kind == "register":
+                    self.register_path = p
+            except Exception as e:
+                errors.append(f"{p.name}: {e}")
+        save_settings(self.settings)
+        self._refresh_status()
+        if errors:
+            QMessageBox.warning(self, "파일 확인", "\n".join(errors))
+
+    def _refresh_status(self):
+        def mark(p, label):
+            return f"✅ {label}: {p.name}" if p else f"⚠️ {label}: 없음"
+        reg = f"✅ 접수대장: {self.register_path}" if self.register_path else f"⚠️ 접수대장: {self.settings['register_root']}에서 찾지 못함"
+        self.status.setText("\n".join([
+            mark(self.csi_path, "CSI 발급대장"),
+            mark(self.management_path, "발행리스트"),
+            reg,
+        ]))
+        self.start_btn.setEnabled(bool(self.csi_path and self.management_path and self.register_path))
+
+    def browse_files(self):
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "파일 선택", self.settings["last_download_dir"], "Excel (*.xlsx *.xls *.xlsm)"
+        )
+        if files:
+            self.accept_files([Path(x) for x in files])
+
+    def run_check(self):
+        try:
+            csi = parse_csi(self.csi_path)
+            mgmt, self.excluded_general = parse_management(self.management_path)
+            self.register_path = find_register(self.settings["register_root"]) or self.register_path
+            reg = parse_register(self.register_path)
+            self.rows = compare(csi, mgmt, reg)
+        except Exception as e:
+            QMessageBox.critical(self, "검사 실패", str(e))
+            return
+
+        counts = {s: sum(1 for x in self.rows if x.status == s) for s in ("정상", "오류", "확인 필요")}
+        append_history({
+            "checked_at": datetime.now().isoformat(timespec="seconds"),
+            "csi": self.csi_path.name,
+            "management": self.management_path.name,
+            "compared": len(csi),
+            "normal": counts["정상"],
+            "error": counts["오류"],
+            "review": counts["확인 필요"],
+            "excluded_general": self.excluded_general,
+        })
+        self.show_results(counts, len(csi))
+
+    def show_results(self, counts, compared):
+        win = QMainWindow(self)
+        win.setWindowTitle("검사 결과")
+        win.resize(1320, 820)
+        root = QWidget()
+        win.setCentralWidget(root)
+        lay = QVBoxLayout(root)
+        lay.setContentsMargins(20, 20, 20, 20)
+
+        summary = QLabel(
+            f"비교 {compared}건   |   정상 {counts['정상']}건   |   오류 {counts['오류']}건   |   "
+            f"확인 필요 {counts['확인 필요']}건   |   일반접수 제외 {self.excluded_general}건"
+        )
+        summary.setObjectName("summary")
+        lay.addWidget(summary)
+
+        tabs = QTabWidget()
+        lay.addWidget(tabs, 1)
+        review = CopyTable()
+        alltab = CopyTable()
+        tabs.addTab(review, "확인 필요")
+        tabs.addTab(alltab, "전체 비교")
+        review_rows = [r for r in self.rows if r.status != "정상"]
+        self._fill_review(review, review_rows)
+        self._fill_all(alltab, self.rows)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        export = QPushButton("엑셀로 저장")
+        export.clicked.connect(lambda: self.export(review_rows))
+        actions.addWidget(export)
+        rerun = QPushButton("재검사")
+        rerun.setObjectName("primary")
+        rerun.clicked.connect(lambda: self.rerun(win))
+        actions.addWidget(rerun)
+        lay.addLayout(actions)
+
+        win.show()
+        self.result_window = win
+
+    def _fill_review(self, table, rows):
+        headers = ["상태", "접수번호", "오류항목", "CSI 기준값", "관리프로그램", "접수대장", "사유"]
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(rows))
+        for rr, row in enumerate(rows):
+            def fmt(rec, revised=False):
+                if not rec:
+                    return "없음"
+                d = rec.revised_issue_date if revised and rec.revised_issue_date else rec.issue_date
+                return f"{rec.certificate_no}\n{d.isoformat() if d else ''}"
+            revised = bool(row.csi and row.csi.certificate_no.rsplit("-", 1)[-1] != "00")
+            vals = [
+                row.status,
+                row.receipt_no,
+                " · ".join(row.error_fields),
+                fmt(row.csi),
+                fmt(row.management),
+                fmt(row.register, revised),
+                " / ".join(row.reasons),
+            ]
+            for c, v in enumerate(vals):
+                table.setItem(rr, c, QTableWidgetItem(v))
+        table.resizeColumnsToContents()
+        table.setColumnWidth(6, 420)
+
+    def _fill_all(self, table, rows):
+        headers = ["상태", "접수번호", "공사명", "업체", "발급일", "성적서번호"]
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(rows))
+        for rr, row in enumerate(rows):
+            base = row.csi or row.management or row.register
+            vals = [
+                row.status,
+                row.receipt_no,
+                base.project_name if base else "",
+                base.company_name if base else "",
+                row.issue_date_summary,
+                row.certificate_summary,
+            ]
+            for c, v in enumerate(vals):
+                table.setItem(rr, c, QTableWidgetItem(v))
+        table.resizeColumnsToContents()
+        table.setColumnWidth(2, 360)
+        table.setColumnWidth(3, 240)
+
+    def rerun(self, result_window):
+        candidate = newest_management_file(self.settings["last_download_dir"])
+        if (
+            candidate and self.management_path and candidate != self.management_path
+            and candidate.stat().st_mtime > self.management_path.stat().st_mtime
+        ):
+            ans = QMessageBox.question(
+                self,
+                "새 발행리스트 발견",
+                f"더 최신 발행리스트가 있습니다.\n\n{candidate.name}\n\n이 파일로 재검사할까요?",
+            )
+            if ans == QMessageBox.Yes:
+                self.management_path = candidate
+        self.register_path = find_register(self.settings["register_root"]) or self.register_path
+        result_window.close()
+        self._refresh_status()
+        self.run_check()
+
+    def export(self, rows):
+        p, _ = QFileDialog.getSaveFileName(
+            self,
+            "결과 저장",
+            str(Path.home() / "Downloads" / "성적서_발급검증_결과.xlsx"),
+            "Excel (*.xlsx)",
+        )
+        if not p:
+            return
+        export_results(p, rows, include_all=True)
+        QMessageBox.information(self, "저장 완료", p)
+
+    def update_check(self):
+        try:
+            available, latest, url = check_update()
+            if available:
+                if QMessageBox.question(
+                    self, "업데이트", f"새 버전 v{latest}이 있습니다.\nGitHub Release 페이지를 열까요?"
+                ) == QMessageBox.Yes:
+                    webbrowser.open(url)
+            else:
+                QMessageBox.information(self, "업데이트", f"현재 v{__version__}이 최신 버전입니다.")
+        except Exception:
+            QMessageBox.information(
+                self,
+                "업데이트 확인",
+                "현재 저장소가 비공개이거나 네트워크에 연결할 수 없어 최신 버전을 확인하지 못했습니다.",
+            )
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setStyleSheet("""
+        QWidget { font-family: 'Segoe UI', 'Malgun Gothic'; font-size: 10pt; background:#F4F6F8; color:#202124; }
+        QLabel#title { font-size:22pt; font-weight:700; }
+        QLabel#muted { color:#6B7280; }
+        QFrame#dropZone { background:white; border:2px dashed #B8C0CC; border-radius:14px; min-height:260px; }
+        QLabel#dropTitle { font-size:14pt; font-weight:600; background:transparent; }
+        QLabel#statusCard, QLabel#summary { background:white; border:1px solid #DFE3E8; border-radius:10px; padding:14px; }
+        QPushButton { background:white; border:1px solid #CCD3DB; border-radius:8px; padding:8px 14px; }
+        QPushButton:hover { background:#EEF2F6; }
+        QPushButton#primary { background:#2563EB; color:white; border:none; font-weight:600; }
+        QPushButton#primary:disabled { background:#A8B6C8; }
+        QTabWidget::pane { background:white; border:1px solid #DFE3E8; }
+        QTableWidget { background:white; gridline-color:#E5E7EB; selection-background-color:#DCEAFE; selection-color:#111827; }
+        QHeaderView::section { background:#EEF2F6; padding:7px; border:none; border-right:1px solid #DDE2E7; font-weight:600; }
+    """)
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
