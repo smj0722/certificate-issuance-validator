@@ -497,6 +497,46 @@ def main():
         QTableWidget { background:white; gridline-color:#E5E7EB; selection-background-color:#DCEAFE; selection-color:#111827; outline:0; }
         QHeaderView::section { background:#EEF2F6; padding:7px; border:none; border-right:1px solid #DDE2E7; font-weight:600; }
         QSplitter::handle { background:#E2E8F0; height:5px; }
+
+        QScrollBar:vertical {
+            background:#F5F7FA;
+            width:12px;
+            margin:2px;
+            border:none;
+            border-radius:6px;
+        }
+        QScrollBar::handle:vertical {
+            background:#B8C2CF;
+            min-height:34px;
+            border-radius:5px;
+        }
+        QScrollBar::handle:vertical:hover { background:#94A3B8; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height:0px;
+            border:none;
+            background:transparent;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background:transparent; }
+
+        QScrollBar:horizontal {
+            background:#F5F7FA;
+            height:12px;
+            margin:2px;
+            border:none;
+            border-radius:6px;
+        }
+        QScrollBar::handle:horizontal {
+            background:#B8C2CF;
+            min-width:34px;
+            border-radius:5px;
+        }
+        QScrollBar::handle:horizontal:hover { background:#94A3B8; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+            width:0px;
+            border:none;
+            background:transparent;
+        }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background:transparent; }
     """)
     w = MainWindow()
     w.show()
