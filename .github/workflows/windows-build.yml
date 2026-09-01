@@ -1,0 +1,29 @@
+name: Windows Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install -e .[dev]
+      - name: Build portable EXE
+        shell: pwsh
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name "성적서 발급검증"
+          --paths src
+          main.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 성적서-발급검증-windows
+          path: dist/성적서 발급검증.exe
