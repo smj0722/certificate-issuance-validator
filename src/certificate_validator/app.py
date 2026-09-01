@@ -412,17 +412,34 @@ class MainWindow(QMainWindow):
         revision = bool(row.csi and is_revised(row.csi.certificate_no))
         register_date = "revised_issue_date" if revision else "issue_date"
         register_date_label = "수정발급일자" if revision else "발급일자"
+        reason = " / ".join(row.reasons) if row.reasons else "없음"
         html = f"""
-        <b>{row.receipt_no}</b> &nbsp; <span>{row.status}</span><br><br>
-        <table cellspacing='0' cellpadding='7' width='100%'>
-          <tr><th align='left'>항목</th><th align='left'>CSI 원본</th><th align='left'>관리프로그램</th><th align='left'>접수대장</th></tr>
-          <tr><td>성적서번호</td><td>{v(row.csi,'certificate_no')}</td><td>{v(row.management,'certificate_no')}</td><td>{v(row.register,'certificate_no')}</td></tr>
-          <tr><td>발급일자</td><td>{v(row.csi,'issue_date')}</td><td>{v(row.management,'issue_date')}</td><td>{v(row.register,register_date)} ({register_date_label})</td></tr>
-          <tr><td>공사명</td><td>{v(row.csi,'project_name')}</td><td>{v(row.management,'project_name')}</td><td>{v(row.register,'project_name')}</td></tr>
-          <tr><td>업체</td><td>{v(row.csi,'company_name')}</td><td>{v(row.management,'company_name')}</td><td>{v(row.register,'company_name')}</td></tr>
-          <tr><td>시료명</td><td>{v(row.csi,'sample_name')}</td><td>{v(row.management,'sample_name')}</td><td>{v(row.register,'sample_name')}</td></tr>
+        <div style='margin:2px 2px 12px 2px;'>
+          <b>{row.receipt_no}</b>&nbsp;&nbsp;<span>{row.status}</span>
+        </div>
+        <table cellspacing='0' cellpadding='8' width='100%' style='table-layout:fixed; border-collapse:collapse;'>
+          <colgroup>
+            <col width='9%'>
+            <col width='30.33%'>
+            <col width='30.33%'>
+            <col width='30.34%'>
+          </colgroup>
+          <tr style='background:#F8FAFC;'>
+            <th align='left' style='padding:8px 10px;'>항목</th>
+            <th align='left' style='padding:8px 10px;'>CSI 원본</th>
+            <th align='left' style='padding:8px 10px;'>관리프로그램</th>
+            <th align='left' style='padding:8px 10px;'>접수대장</th>
+          </tr>
+          <tr><td style='padding:7px 10px;'><b>성적서번호</b></td><td style='padding:7px 10px; white-space:normal;'>{v(row.csi,'certificate_no')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.management,'certificate_no')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.register,'certificate_no')}</td></tr>
+          <tr><td style='padding:7px 10px;'><b>발급일자</b></td><td style='padding:7px 10px; white-space:normal;'>{v(row.csi,'issue_date')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.management,'issue_date')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.register,register_date)} ({register_date_label})</td></tr>
+          <tr><td style='padding:7px 10px;'><b>공사명</b></td><td style='padding:7px 10px; white-space:normal;'>{v(row.csi,'project_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.management,'project_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.register,'project_name')}</td></tr>
+          <tr><td style='padding:7px 10px;'><b>업체</b></td><td style='padding:7px 10px; white-space:normal;'>{v(row.csi,'company_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.management,'company_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.register,'company_name')}</td></tr>
+          <tr><td style='padding:7px 10px;'><b>시료명</b></td><td style='padding:7px 10px; white-space:normal;'>{v(row.csi,'sample_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.management,'sample_name')}</td><td style='padding:7px 10px; white-space:normal;'>{v(row.register,'sample_name')}</td></tr>
         </table>
-        <br><b>판정 사유</b>: {' / '.join(row.reasons) if row.reasons else '없음'}
+        <div style='margin-top:14px; padding:10px 12px; background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px;'>
+          <b>판정 사유</b><br>
+          <span>{reason}</span>
+        </div>
         """
         detail.setHtml(html)
 
