@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "certificate-issuance-validator"
+version = "0.1.0"
+description = "성적서 발급검증 - CSI 발급대장, 관리프로그램 발행리스트, 접수대장 3자 검증"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.8,<7",
+  "openpyxl>=3.1,<4",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pyinstaller>=6.10,<7"]
+
+[project.scripts]
+certificate-validator = "certificate_validator.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
