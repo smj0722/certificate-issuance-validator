@@ -9,7 +9,8 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu,
     QMessageBox, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QFrame, QAbstractItemView, QTextBrowser
+    QVBoxLayout, QWidget, QFrame, QAbstractItemView, QTextBrowser,
+    QProgressBar, QSplitter
 )
 
 from . import __version__
@@ -27,6 +28,8 @@ class DropZone(QFrame):
         super().__init__(parent)
         self.setAcceptDrops(True)
         self.setObjectName("dropZone")
+        self.setMinimumHeight(170)
+        self.setMaximumHeight(210)
         layout = QVBoxLayout(self)
         title = QLabel("CSI 발급대장과 발행리스트를 여기에 드래그")
         title.setObjectName("dropTitle")
@@ -54,10 +57,16 @@ class CopyTable(QTableWidget):
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.setTextElideMode(Qt.ElideNone)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
 
     def _menu(self, pos):
+        index = self.indexAt(pos)
+        if index.isValid() and not self.selectionModel().isSelected(index):
+            self.clearSelection()
+            self.setCurrentCell(index.row(), index.column())
+            self.item(index.row(), index.column()).setSelected(True)
         if not self.selectedItems():
             return
         menu = QMenu(self)
@@ -98,7 +107,7 @@ class MainWindow(QMainWindow):
         self.rows = []
         self.excluded_general = 0
         self.setWindowTitle(f"성적서 발급검증 v{__version__}")
-        self.resize(1180, 760)
+        self.resize(1100, 610)
         self._build()
         self._refresh_status()
 
@@ -106,8 +115,8 @@ class MainWindow(QMainWindow):
         root = QWidget()
         self.setCentralWidget(root)
         outer = QVBoxLayout(root)
-        outer.setContentsMargins(24, 24, 24, 24)
-        outer.setSpacing(16)
+        outer.setContentsMargins(22, 20, 22, 20)
+        outer.setSpacing(12)
 
         header = QHBoxLayout()
         title = QLabel("성적서 발급검증")
@@ -120,12 +129,24 @@ class MainWindow(QMainWindow):
         outer.addLayout(header)
 
         self.drop = DropZone(self)
-        outer.addWidget(self.drop, 1)
+        outer.addWidget(self.drop)
 
         self.status = QLabel()
         self.status.setObjectName("statusCard")
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         outer.addWidget(self.status)
+
+        self.progress_label = QLabel("")
+        self.progress_label.setObjectName("progressLabel")
+        self.progress_label.hide()
+        outer.addWidget(self.progress_label)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.hide()
+        outer.addWidget(self.progress)
 
         buttons = QHBoxLayout()
         buttons.addStretch()
@@ -183,16 +204,36 @@ class MainWindow(QMainWindow):
         if files:
             self.accept_files([Path(x) for x in files])
 
+    def _progress_step(self, value: int, text: str):
+        self.progress_label.setText(text)
+        self.progress.setValue(value)
+        self.progress_label.show()
+        self.progress.show()
+        QApplication.processEvents()
+
     def run_check(self):
+        self.start_btn.setEnabled(False)
         try:
+            self._progress_step(10, "1/4  CSI 발급대장을 읽는 중...")
             csi = parse_csi(self.csi_path)
+
+            self._progress_step(35, "2/4  발행리스트를 읽는 중...")
             mgmt, self.excluded_general = parse_management(self.management_path)
+
+            self._progress_step(60, "3/4  접수대장을 읽는 중...")
             self.register_path = find_register(self.settings["register_root"]) or self.register_path
             reg = parse_register(self.register_path)
+
+            self._progress_step(82, "4/4  세 파일을 비교하는 중...")
             self.rows = compare(csi, mgmt, reg)
+            self._progress_step(100, "검사 완료. 결과를 여는 중...")
         except Exception as e:
+            self.progress_label.setText("검사 중 오류가 발생했습니다.")
             QMessageBox.critical(self, "검사 실패", str(e))
+            self._refresh_status()
             return
+        finally:
+            self.start_btn.setEnabled(bool(self.csi_path and self.management_path and self.register_path))
 
         counts = {s: sum(1 for x in self.rows if x.status == s) for s in ("정상", "오류", "확인 필요")}
         append_history({
@@ -211,14 +252,20 @@ class MainWindow(QMainWindow):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
+
         table = CopyTable()
         detail = QTextBrowser()
         detail.setObjectName("detail")
-        detail.setMinimumHeight(190)
-        detail.setMaximumHeight(245)
+        detail.setMinimumHeight(250)
         detail.setPlaceholderText("행을 선택하면 CSI · 관리프로그램 · 접수대장 원본값을 비교해 보여줍니다.")
-        layout.addWidget(table, 1)
-        layout.addWidget(detail)
+
+        splitter = QSplitter(Qt.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(table)
+        splitter.addWidget(detail)
+        splitter.setSizes([430, 310])
+        layout.addWidget(splitter, 1)
+
         if full:
             self._fill_all(table, rows)
         else:
@@ -232,11 +279,11 @@ class MainWindow(QMainWindow):
     def show_results(self, counts, compared):
         win = QMainWindow(self)
         win.setWindowTitle("검사 결과")
-        win.resize(1320, 860)
+        win.resize(1380, 920)
         root = QWidget()
         win.setCentralWidget(root)
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(20, 20, 20, 20)
+        lay.setContentsMargins(16, 16, 16, 16)
 
         summary = QLabel(
             f"비교 {compared}건   |   정상 {counts['정상']}건   |   오류 {counts['오류']}건   |   "
@@ -274,33 +321,43 @@ class MainWindow(QMainWindow):
             item.setBackground(Qt.GlobalColor.yellow)
         table.setItem(row_index, 0, item)
 
+    @staticmethod
+    def _certificate_value(rec):
+        if not rec or not rec.certificate_no:
+            return "없음"
+        return rec.certificate_no
+
     def _fill_review(self, table, rows):
-        headers = ["상태", "접수번호", "오류항목", "CSI 기준값", "관리프로그램", "접수대장", "사유"]
+        headers = [
+            "상태",
+            "접수번호",
+            "CSI 성적서번호",
+            "관리프로그램 성적서번호",
+            "접수대장 성적서번호",
+            "오류항목",
+        ]
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setRowCount(len(rows))
         for rr, row in enumerate(rows):
-            def fmt(rec, revised=False):
-                if not rec:
-                    return "없음"
-                d = rec.revised_issue_date if revised and rec.revised_issue_date else rec.issue_date
-                return f"{rec.certificate_no}\n{d.isoformat() if d else ''}"
-
-            revised = bool(row.csi and is_revised(row.csi.certificate_no))
             vals = [
                 row.status,
                 row.receipt_no,
+                self._certificate_value(row.csi),
+                self._certificate_value(row.management),
+                self._certificate_value(row.register),
                 " · ".join(row.error_fields),
-                fmt(row.csi),
-                fmt(row.management),
-                fmt(row.register, revised),
-                " / ".join(row.reasons),
             ]
             self._set_status_item(table, rr, row.status)
             for c, v in enumerate(vals[1:], start=1):
                 table.setItem(rr, c, QTableWidgetItem(v))
-        table.resizeColumnsToContents()
-        table.setColumnWidth(6, 420)
+
+        table.setColumnWidth(0, 72)
+        table.setColumnWidth(1, 145)
+        table.setColumnWidth(2, 190)
+        table.setColumnWidth(3, 205)
+        table.setColumnWidth(4, 195)
+        table.setColumnWidth(5, 360)
 
     def _fill_all(self, table, rows):
         headers = ["상태", "접수번호", "공사명", "업체", "발급일", "성적서번호"]
@@ -320,9 +377,12 @@ class MainWindow(QMainWindow):
             self._set_status_item(table, rr, row.status)
             for c, v in enumerate(vals[1:], start=1):
                 table.setItem(rr, c, QTableWidgetItem(v))
-        table.resizeColumnsToContents()
-        table.setColumnWidth(2, 360)
-        table.setColumnWidth(3, 240)
+        table.setColumnWidth(0, 72)
+        table.setColumnWidth(1, 145)
+        table.setColumnWidth(2, 380)
+        table.setColumnWidth(3, 250)
+        table.setColumnWidth(4, 180)
+        table.setColumnWidth(5, 240)
 
     def _show_detail(self, detail, rows, row_index):
         if row_index < 0 or row_index >= len(rows):
@@ -342,12 +402,13 @@ class MainWindow(QMainWindow):
 
         revision = bool(row.csi and is_revised(row.csi.certificate_no))
         register_date = "revised_issue_date" if revision else "issue_date"
+        register_date_label = "수정발급일자" if revision else "발급일자"
         html = f"""
         <b>{row.receipt_no}</b> &nbsp; <span>{row.status}</span><br><br>
-        <table cellspacing='0' cellpadding='5' width='100%'>
+        <table cellspacing='0' cellpadding='7' width='100%'>
           <tr><th align='left'>항목</th><th align='left'>CSI 원본</th><th align='left'>관리프로그램</th><th align='left'>접수대장</th></tr>
           <tr><td>성적서번호</td><td>{v(row.csi,'certificate_no')}</td><td>{v(row.management,'certificate_no')}</td><td>{v(row.register,'certificate_no')}</td></tr>
-          <tr><td>발급일자</td><td>{v(row.csi,'issue_date')}</td><td>{v(row.management,'issue_date')}</td><td>{v(row.register,register_date)}</td></tr>
+          <tr><td>발급일자</td><td>{v(row.csi,'issue_date')}</td><td>{v(row.management,'issue_date')}</td><td>{v(row.register,register_date)} ({register_date_label})</td></tr>
           <tr><td>공사명</td><td>{v(row.csi,'project_name')}</td><td>{v(row.management,'project_name')}</td><td>{v(row.register,'project_name')}</td></tr>
           <tr><td>업체</td><td>{v(row.csi,'company_name')}</td><td>{v(row.management,'company_name')}</td><td>{v(row.register,'company_name')}</td></tr>
           <tr><td>시료명</td><td>{v(row.csi,'sample_name')}</td><td>{v(row.management,'sample_name')}</td><td>{v(row.register,'sample_name')}</td></tr>
@@ -412,17 +473,22 @@ def main():
         QWidget { font-family: 'Segoe UI', 'Malgun Gothic'; font-size: 10pt; background:#F4F6F8; color:#202124; }
         QLabel#title { font-size:22pt; font-weight:700; }
         QLabel#muted { color:#6B7280; }
-        QFrame#dropZone { background:white; border:2px dashed #B8C0CC; border-radius:14px; min-height:260px; }
+        QLabel#progressLabel { color:#475569; padding-left:2px; }
+        QFrame#dropZone { background:white; border:2px dashed #B8C0CC; border-radius:14px; }
         QLabel#dropTitle { font-size:14pt; font-weight:600; background:transparent; }
-        QLabel#statusCard, QLabel#summary { background:white; border:1px solid #DFE3E8; border-radius:10px; padding:14px; }
-        QTextBrowser#detail { background:white; border:1px solid #DFE3E8; border-radius:8px; padding:6px; }
+        QLabel#statusCard, QLabel#summary { background:white; border:1px solid #DFE3E8; border-radius:10px; padding:12px; }
+        QTextBrowser#detail { background:white; border:1px solid #DFE3E8; border-radius:8px; padding:8px; }
+        QProgressBar { background:white; border:1px solid #D5DBE3; border-radius:5px; height:8px; }
+        QProgressBar::chunk { background:#2563EB; border-radius:4px; }
         QPushButton { background:white; border:1px solid #CCD3DB; border-radius:8px; padding:8px 14px; }
         QPushButton:hover { background:#EEF2F6; }
         QPushButton#primary { background:#2563EB; color:white; border:none; font-weight:600; }
         QPushButton#primary:disabled { background:#A8B6C8; }
         QTabWidget::pane { background:white; border:1px solid #DFE3E8; }
-        QTableWidget { background:white; gridline-color:#E5E7EB; selection-background-color:#DCEAFE; selection-color:#111827; }
+        QTableWidget { background:white; gridline-color:#E5E7EB; selection-background-color:#DCEAFE; selection-color:#111827; outline:0; }
+        QTableWidget::item:focus { outline:0; border:none; }
         QHeaderView::section { background:#EEF2F6; padding:7px; border:none; border-right:1px solid #DDE2E7; font-weight:600; }
+        QSplitter::handle { background:#E2E8F0; height:5px; }
     """)
     w = MainWindow()
     w.show()
