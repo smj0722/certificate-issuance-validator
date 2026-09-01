@@ -5,12 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QPainter
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMenu,
     QMessageBox, QPushButton, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget, QFrame, QAbstractItemView, QTextBrowser,
-    QProgressBar, QSplitter
+    QProgressBar, QSplitter, QStyledItemDelegate, QStyle
 )
 
 from . import __version__
@@ -51,6 +51,14 @@ class DropZone(QFrame):
         self.window().accept_files(paths)
 
 
+class NoFocusDelegate(QStyledItemDelegate):
+    """선택 배경은 유지하고 현재 셀의 편집 커서처럼 보이는 포커스 테두리만 제거한다."""
+
+    def paint(self, painter: QPainter, option, index):
+        option.state &= ~QStyle.StateFlag.State_HasFocus
+        super().paint(painter, option, index)
+
+
 class CopyTable(QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -58,6 +66,7 @@ class CopyTable(QTableWidget):
         self.setSelectionBehavior(QAbstractItemView.SelectItems)
         self.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.setTextElideMode(Qt.ElideNone)
+        self.setItemDelegate(NoFocusDelegate(self))
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._menu)
 
@@ -486,7 +495,6 @@ def main():
         QPushButton#primary:disabled { background:#A8B6C8; }
         QTabWidget::pane { background:white; border:1px solid #DFE3E8; }
         QTableWidget { background:white; gridline-color:#E5E7EB; selection-background-color:#DCEAFE; selection-color:#111827; outline:0; }
-        QTableWidget::item:focus { outline:0; border:none; }
         QHeaderView::section { background:#EEF2F6; padding:7px; border:none; border-right:1px solid #DDE2E7; font-weight:600; }
         QSplitter::handle { background:#E2E8F0; height:5px; }
     """)
