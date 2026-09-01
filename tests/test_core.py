@@ -46,3 +46,23 @@ def test_extra_non_csi_issue_is_review_not_error():
     d = date(2026, 7, 30)
     rows = compare([], [rec("AC-OLD", "IS-2026-1-00", d)], [])
     assert rows[0].status == "확인 필요"
+
+
+def test_supplier_request_without_project_is_normal():
+    d = date(2026, 9, 1)
+    csi = [rec("AC-2026-131395", "IS-2026-152848-00", d, project="*", company="송정산업개발(주)")]
+    mgmt = [rec("AC-2026-131395", "IS-2026-152848-00", d, project="공급원승인용", company="송정산업개발(주)")]
+    reg = [rec("AC-2026-131395", "IS-2026-152848-00", d, project="공급원 승인", company="-")]
+    row = compare(csi, mgmt, reg)[0]
+    assert row.status == "정상"
+    assert row.error_fields == []
+
+
+def test_supplier_request_with_blank_register_fields_is_normal():
+    d = date(2026, 9, 1)
+    csi = [rec("AC-2026-147923", "IS-2026-152836-00", d, project="*", company="밀레니엄인텍")]
+    mgmt = [rec("AC-2026-147923", "IS-2026-152836-00", d, project="공급원승인용", company="밀레니엄인텍")]
+    reg = [rec("AC-2026-147923", "IS-2026-152836-00", d, project="-", company="-")]
+    row = compare(csi, mgmt, reg)[0]
+    assert row.status == "정상"
+    assert row.error_fields == []
