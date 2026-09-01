@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    paths:
+      - '.release-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install
+        run: pip install -e .[dev]
+      - name: Test
+        run: pytest -q
+      - name: Build portable EXE
+        shell: pwsh
+        run: >-
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name "성적서 발급검증"
+          --paths src
+          main.py
+      - name: Create tag and release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = python -c "from certificate_validator import __version__; print(__version__)"
+          $tag = "v$version"
+          git tag $tag
+          git push origin $tag
+          gh release create $tag "dist/성적서 발급검증.exe#성적서 발급검증.exe" --title "성적서 발급검증 $tag" --notes "Windows 무설치형 성적서 발급검증 $tag`n`n- CSI 발급대장·관리프로그램·접수대장 3자 검증`n- 검사 진행상태 표시`n- 확인 필요 결과표 가독성 개선`n- 성적서번호 개별 복사 및 전체 표시`n- 상세영역 확대 및 조절 가능"
