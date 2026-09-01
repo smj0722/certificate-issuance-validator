@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "certificate-issuance-validator"
-version = "0.1.0"
+version = "0.1.1"
 description = "성적서 발급검증 - CSI 발급대장, 관리프로그램 발행리스트, 접수대장 3자 검증"
 readme = "README.md"
 requires-python = ">=3.11"
