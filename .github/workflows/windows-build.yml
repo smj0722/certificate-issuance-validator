@@ -3,6 +3,7 @@ name: Windows Build
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - 'v*'
 
@@ -16,6 +17,8 @@ jobs:
           python-version: '3.12'
       - name: Install
         run: pip install -e .[dev]
+      - name: Test
+        run: pytest -q
       - name: Build portable EXE
         shell: pwsh
         run: >-
