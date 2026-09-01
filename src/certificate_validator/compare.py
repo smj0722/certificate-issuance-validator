@@ -4,10 +4,17 @@ from .models import ComparisonRow, Record, is_revised
 from .normalize import company_match, project_match
 
 
+_MISSING_MARKERS = {"", "*", "-", "—"}
+
+
 def _index(records: list[Record]) -> tuple[dict[str, Record], set[str]]:
     counts = Counter(r.receipt_no for r in records)
     duplicates = {k for k, v in counts.items() if v > 1}
     return {r.receipt_no: r for r in records}, duplicates
+
+
+def _has_real_value(value: str | None) -> bool:
+    return str(value or "").strip() not in _MISSING_MARKERS
 
 
 def compare(csi_records: list[Record], management_records: list[Record], register_records: list[Record]) -> list[ComparisonRow]:
@@ -34,17 +41,26 @@ def compare(csi_records: list[Record], management_records: list[Record], registe
             errors.append("접수대장 누락")
             reasons.append("CSI 발급건이 접수대장 건설 시트에 없습니다.")
 
+        # 제조업체/공급원승인 의뢰처럼 CSI 공사명이 *, -, 빈칸인 경우에는
+        # 공사명이 실제 비교 기준이 아니므로 관리프로그램/접수대장의 공사명 비교를 생략한다.
+        compare_project = _has_real_value(source.project_name)
+
         for label, target in (("관리프로그램", m), ("접수대장", r)):
             if target is None:
                 continue
-            ok, _, _ = project_match(source.project_name, target.project_name)
-            if not ok:
-                warnings.append(f"{label} 공사명")
-                reasons.append(f"{label} 공사명이 CSI와 크게 다릅니다.")
-            ok, _, _ = company_match(source.company_name, target.company_name)
-            if source.company_name and target.company_name and not ok:
-                warnings.append(f"{label} 업체")
-                reasons.append(f"{label} 업체명이 CSI와 크게 다릅니다.")
+            if compare_project:
+                ok, _, _ = project_match(source.project_name, target.project_name)
+                if not ok:
+                    warnings.append(f"{label} 공사명")
+                    reasons.append(f"{label} 공사명이 CSI와 크게 다릅니다.")
+
+            # '-'나 빈칸은 업체 미입력 표시로 보고 불일치 경고를 만들지 않는다.
+            # 관리프로그램처럼 양쪽에 실제 업체명이 있는 경우에는 기존대로 비교한다.
+            if _has_real_value(source.company_name) and _has_real_value(target.company_name):
+                ok, _, _ = company_match(source.company_name, target.company_name)
+                if not ok:
+                    warnings.append(f"{label} 업체")
+                    reasons.append(f"{label} 업체명이 CSI와 크게 다릅니다.")
 
         if m is not None:
             if not m.certificate_no:
